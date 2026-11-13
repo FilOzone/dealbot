@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.15.0](https://github.com/FilOzone/dealbot/compare/backend-v1.14.2...backend-v1.15.0) (2026-11-13)
+
+
+### Features
+
+* **jobs:** add OOM memory sampler ([#766](https://github.com/FilOzone/dealbot/issues/766)) ([a6f43c0](https://github.com/FilOzone/dealbot/commit/a6f43c07328ce120301350ffc185aac59bfc3473))
+
+
+### Miscellaneous
+
+* **deps:** upgrade to synapse-sdk 2 stack ([#737](https://github.com/FilOzone/dealbot/issues/737)) ([5d4246c](https://github.com/FilOzone/dealbot/commit/5d4246cba2a98e8be47110fe61d6ded4e793a38b))
+
 ## [1.14.2](https://github.com/FilOzone/dealbot/compare/backend-v1.14.1...backend-v1.14.2) (2026-11-09)
 
 
