@@ -31,13 +31,16 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { INetworkConfig } from "../config/index.js";
 import { DEALBOT_METADATA_SOURCE } from "./data-set-slots.js";
 
+type SynapseConfig = Pick<INetworkConfig, "network" | "rpcUrl" | "rpcRequestTimeoutMs" | "walletAddress"> &
+  ({ walletPrivateKey: `0x${string}` } | { sessionKeyPrivateKey: `0x${string}` });
+
 export interface SynapseInstanceResult {
   synapse: Synapse;
   isSessionKeyMode: boolean;
 }
 
 /** Create a Synapse instance from blockchain config. See file-level docs. */
-export async function createSynapseFromConfig(config: INetworkConfig): Promise<SynapseInstanceResult> {
+export async function createSynapseFromConfig(config: SynapseConfig): Promise<SynapseInstanceResult> {
   const chain = config.network === "mainnet" ? mainnet : calibration;
   const rpcUrl = config.rpcUrl;
   // Keep this timeout above eRPC's network failsafe budget so eRPC can fail
