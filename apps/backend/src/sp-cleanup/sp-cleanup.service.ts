@@ -345,10 +345,10 @@ export class SpCleanupService {
     const spAddress = provider.serviceProvider;
 
     // `findMatchingDataSets` is the SDK's own matcher and ordering — exact metadata equality,
-    // then piece-bearing sets ahead of empty ones, then lowest id. Its first entry is therefore
-    // the set `createContext` resolves this slot to. Using it rather than reimplementing the
-    // rule is deliberate: pruning terminates whatever it fails to claim, so any drift from the
-    // SDK's choice would delete the set deal jobs are writing to.
+    // then compact sets ahead of legacy ones, then piece-bearing sets ahead of empty ones, then
+    // lowest id. Its first entry is therefore the set `createContext` resolves this slot to.
+    // Using it rather than reimplementing the rule is deliberate: pruning terminates whatever it
+    // fails to claim, so any drift from the SDK's choice would delete the set deal jobs are writing to.
     // Subgraph rows are non-deleted FWSS data sets, which is what the SDK calls live and managed.
     const selectable = activeDataSets.map((dataSet) => ({
       ...dataSet,
@@ -356,9 +356,14 @@ export class SpCleanupService {
       live: true,
       managed: true,
     }));
+    const { legacyPieceStorageIdLimit } = asChain(relayClient.chain);
     const survivors = new Set<bigint>();
     for (let slot = 0; slot < targetCount; slot++) {
-      const survivor = findMatchingDataSets(selectable, storedSlotMetadata(baseDataSetMetadata, slot))[0];
+      const survivor = findMatchingDataSets(
+        selectable,
+        storedSlotMetadata(baseDataSetMetadata, slot),
+        legacyPieceStorageIdLimit,
+      )[0];
       if (survivor) {
         survivors.add(survivor.dataSetId);
       }

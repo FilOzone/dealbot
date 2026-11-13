@@ -31,13 +31,16 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { INetworkConfig } from "../config/index.js";
 import { DEALBOT_METADATA_SOURCE } from "./data-set-slots.js";
 
+type SynapseConfig = Pick<INetworkConfig, "network" | "rpcUrl" | "rpcRequestTimeoutMs" | "walletAddress"> &
+  ({ walletPrivateKey: `0x${string}` } | { sessionKeyPrivateKey: `0x${string}` });
+
 export interface SynapseInstanceResult {
   synapse: Synapse;
   isSessionKeyMode: boolean;
 }
 
 /** Create a Synapse instance from blockchain config. See file-level docs. */
-export async function createSynapseFromConfig(config: INetworkConfig): Promise<SynapseInstanceResult> {
+export async function createSynapseFromConfig(config: SynapseConfig): Promise<SynapseInstanceResult> {
   const chain = config.network === "mainnet" ? mainnet : calibration;
   const rpcUrl = config.rpcUrl;
   // Keep this timeout above eRPC's network failsafe budget so eRPC can fail
@@ -98,6 +101,9 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
         client: readClient,
         sessionClient: sessionKey.client,
         source: DEALBOT_METADATA_SOURCE,
+        // SDK 2.0.2's batcher caches a slot's created data set, so recreating a
+        // terminated set reuses its dead ID. Deals upload one piece at a time anyway.
+        pieceBatching: false,
       }),
       isSessionKeyMode: true,
     };
@@ -109,6 +115,7 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
       chain,
       source: DEALBOT_METADATA_SOURCE,
       transport,
+      pieceBatching: false,
     }),
     isSessionKeyMode: false,
   };

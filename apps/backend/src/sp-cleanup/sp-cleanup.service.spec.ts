@@ -467,6 +467,40 @@ describe("SpCleanupService", () => {
       expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 30n }));
     });
 
+    it("keeps the compact copy over an older legacy copy when both hold pieces, matching SDK 2's resolution", async () => {
+      vi.mocked(asChain).mockReturnValue({ ...fakeChain, legacyPieceStorageIdLimit: 1000n } as any);
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000006";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 10n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      mockSnapshot([
+        makeDataSet({
+          dataSetId: 999n,
+          serviceProvider: fullRateAddress,
+          metadata: slotMeta(0),
+          hasActivePieces: true,
+        }),
+        makeDataSet({
+          dataSetId: 1000n,
+          serviceProvider: fullRateAddress,
+          metadata: slotMeta(0),
+          hasActivePieces: true,
+        }),
+      ]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetId: 999n }),
+      );
+    });
+
     it("skips a planned data set that another job already terminated before the relay call", async () => {
       const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
       configService.get.mockImplementation((key: string) =>
