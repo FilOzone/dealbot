@@ -2,7 +2,7 @@
   "id": 2716888166,
   "dashboard_id": 618457,
   "chart_id": 16514886552,
-  "name": "Mainnet data_set_creation jobs failing (no success in 4h)",
+  "name": "Mainnet data_set_creation jobs failing (no success in 48h)",
   "alert_type": "threshold",
   "operator": "lower_than",
   "value": 1,

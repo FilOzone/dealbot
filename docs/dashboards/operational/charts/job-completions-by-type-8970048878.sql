@@ -7,7 +7,8 @@ WITH per_series AS (
     maxMerge(value_max) AS max_counter
   FROM {{source}}
   WHERE name = 'jobs_completed_total'
-    AND dt BETWEEN ({{start_time}} - INTERVAL 24 HOUR) AND {{end_time}}
+    -- Seed the counter deltas before the longest mainnet window (48h).
+    AND dt BETWEEN ({{start_time}} - INTERVAL 49 HOUR) AND {{end_time}}
     AND label('app') = 'dealbot'
     AND label('network') IN ('mainnet', 'calibration')
   GROUP BY time, job_type, network, series_id
@@ -36,6 +37,7 @@ per_bucket AS (
     time,
     toUnixTimestamp(time) AS ts,
     concat(job_type, ' (', network, ')') AS series,
+    network,
     job_type,
     sum(delta) AS bucket_value
   FROM deltas
@@ -45,21 +47,24 @@ windowed AS (
   SELECT
     time,
     series,
+    network,
     job_type,
     bucket_value,
     sum(bucket_value) OVER (PARTITION BY series ORDER BY ts RANGE BETWEEN 1500 PRECEDING AND CURRENT ROW) AS rolling_25m,
+    sum(bucket_value) OVER (PARTITION BY series ORDER BY ts RANGE BETWEEN 10800 PRECEDING AND CURRENT ROW) AS rolling_3h,
     sum(bucket_value) OVER (PARTITION BY series ORDER BY ts RANGE BETWEEN 14400 PRECEDING AND CURRENT ROW) AS rolling_4h,
-    sum(bucket_value) OVER (PARTITION BY series ORDER BY ts RANGE BETWEEN 43200 PRECEDING AND CURRENT ROW) AS rolling_12h
+    sum(bucket_value) OVER (PARTITION BY series ORDER BY ts RANGE BETWEEN 43200 PRECEDING AND CURRENT ROW) AS rolling_12h,
+    sum(bucket_value) OVER (PARTITION BY series ORDER BY ts RANGE BETWEEN 172800 PRECEDING AND CURRENT ROW) AS rolling_48h
   FROM per_bucket
 )
 SELECT
   time,
   series,
   CASE job_type
-    WHEN 'deal' THEN rolling_25m
+    WHEN 'deal' THEN if(network = 'mainnet', rolling_3h, rolling_25m)
     WHEN 'retrieval' THEN rolling_25m
     WHEN 'retrieval_sampled' THEN rolling_25m
-    WHEN 'data_set_creation' THEN rolling_4h
+    WHEN 'data_set_creation' THEN if(network = 'mainnet', rolling_48h, rolling_4h)
     WHEN 'data_retention_poll' THEN rolling_4h
     WHEN 'providers_refresh' THEN rolling_12h
     WHEN 'data_set_lifecycle_check' THEN rolling_4h

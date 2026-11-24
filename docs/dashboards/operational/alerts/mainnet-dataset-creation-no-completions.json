@@ -2,7 +2,7 @@
   "id": 2240941370,
   "dashboard_id": 618457,
   "chart_id": 8970048878,
-  "name": "Mainnet data_set_creation jobs stopped (no completions in 4h)",
+  "name": "Mainnet data_set_creation jobs stopped (no completions in 48h)",
   "alert_type": "threshold",
   "operator": "lower_than",
   "value": 1,

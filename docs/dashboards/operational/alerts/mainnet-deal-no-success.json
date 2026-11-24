@@ -2,7 +2,7 @@
   "id": 2716888164,
   "dashboard_id": 618457,
   "chart_id": 16514886552,
-  "name": "Mainnet deal jobs failing (no success in 25m)",
+  "name": "Mainnet deal jobs failing (no success in 3h)",
   "alert_type": "threshold",
   "operator": "lower_than",
   "value": 1,
