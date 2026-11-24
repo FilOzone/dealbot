@@ -5,34 +5,68 @@ For system behavior and job definitions, see `docs/jobs.md`.
 
 ## Pausing jobs
 
-pg-boss schedules are stored in the `job_schedule_state` table.
-To pause job execution for maintenance windows, set `paused = true`.
+pg-boss schedules are stored in the `job_schedule_state` table, one row per job type, provider and network.
+The scheduler skips rows with `paused = true`, so pausing needs no redeploy and survives restarts.
+Use it for ad-hoc stops, such as an underfunded wallet or an incident.
 For routine daily maintenance windows, use `<NET>_MAINTENANCE_WINDOWS_UTC` and
 `<NET>_MAINTENANCE_WINDOW_MINUTES`. Jobs that call SP endpoints (per-provider jobs and `sp_data_set_pruning`)
 defer until the window ends; other global jobs run on their normal schedule.
 
+Pausing takes two steps: stop the scheduler from enqueuing new jobs, then cancel jobs that are already queued.
+Jobs that are already running are not interrupted; they finish or hit their job timeout.
+`<network>` is `mainnet` or `calibration`.
+
+Pause every job on a network:
+
 ```sql
--- Pause all per-SP jobs
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check');
+WHERE network = '<network>';
+
+UPDATE pgboss.job
+SET state = 'cancelled', completed_on = NOW()
+WHERE state IN ('created', 'retry')
+  AND data->>'network' = '<network>';
 ```
 
-To pause a single provider:
+Pause a single provider (use the address as stored in `job_schedule_state.sp_address`):
 
 ```sql
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check')
+WHERE network = '<network>'
   AND sp_address = '<sp-address>';
+
+UPDATE pgboss.job
+SET state = 'cancelled', completed_on = NOW()
+WHERE name = 'sp.work'
+  AND state IN ('created', 'retry')
+  AND data->>'network' = '<network>'
+  AND data->>'spAddress' = '<sp-address>';
 ```
+
+Check that nothing is queued or running before treating the pause as complete:
+
+```sql
+SELECT name, state, count(*)
+FROM pgboss.job
+WHERE state IN ('created', 'retry', 'active')
+  AND data->>'network' = '<network>'
+GROUP BY 1, 2;
+```
+
+Providers approved while a network is paused get new, unpaused schedule rows.
+Re-run the pause statement if the provider list changes during a long pause.
 
 ## Resuming jobs
+
+Always reset `next_run_at` when resuming. A paused row keeps its old `next_run_at`, and per-provider
+jobs replay every missed interval (up to `JOB_CATCHUP_MAX_ENQUEUE` per row per poll) until they catch up.
 
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check');
+WHERE network = '<network>';
 ```
 
 To resume a single provider:
@@ -40,7 +74,7 @@ To resume a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check')
+WHERE network = '<network>'
   AND sp_address = '<sp-address>';
 ```
 
