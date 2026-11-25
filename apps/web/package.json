@@ -52,7 +52,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "^29.1.1",
-    "msw": "^2.12.10",
+    "msw": "^3.0.3",
     "typescript": "catalog:",
     "vite": "^8.1.5",
     "vitest": "catalog:"
